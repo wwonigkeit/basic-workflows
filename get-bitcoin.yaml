@@ -1,0 +1,96 @@
+# Example Workflow - "Get Bitcoin"
+# 
+# The workflow executes a very simple HTTPS request to an endpoint to select BTC values.
+# The return contains many different currencies and their 15min, last, buy
+# sell and symbol values. 
+#
+# The workflow will use a JQ query to transform the received results and select only the last
+# value for BTC for US Dollars. It will then retrieve from an internal Direktiv variable the
+# previous value stored for a workflow run. It will compare previous value to current value
+# and print a message (up, down, same). Lastly, it will store the new value in the same variable
+#
+# No arguments are needed for the workflow
+
+description: This workflow will get the latest bitcoin price and compare it to the previously stored value
+
+# Use the Direktiv request container to run simple request
+functions:
+  - id: get-request
+    type: knative-workflow
+    image: direktiv/request
+
+states:
+    # First state will run the request container to collect the data from the URL
+  - id: get-bitcoin-price
+    type: action
+    action:
+      function: get-request
+      input:
+        method: "GET"
+        url: "https://blockchain.info/ticker"
+      retries:
+        max_attempts: 3
+        delay: "PT30S"
+        multiplier: 2
+        codes:
+          - ".*"
+    transform: 'jq({ value: .return.body.USD.last })'
+    transition: getter-value
+    catch:
+      - error: "*"
+        transition: http-error
+
+  # Retrieve the value for the previous workflow execution
+  - id: getter-value
+    type: getter
+    variables:
+      - key: lvalue # This variable is the variable name
+        scope: workflow # This variable is on a workflow level to ensure persistence across workflow instances 
+    transition: switch-start
+
+  # Evaluate the returned value from the URL to the stored value in the variable
+  - id: switch-start
+    type: switch
+    log: jq(.)
+    conditions:
+      - condition: jq(.var.lvalue == .value)
+        transition: same
+      - condition: jq(.var.lvalue > .value)
+        transition: dropped
+    defaultTransition: wentup
+
+  # From the switch state, the next 3 states prints the decision tree outcome
+  - id: dropped
+    type: noop
+    transition: setter-bite
+    log: 'BTC dropped: jq(.value) / jq(.var.lvalue)'
+  - id: same
+    type: noop
+    transition: setter-bite
+    log: 'BTC is the same: jq(.value)'
+  - id: wentup
+    type: noop
+    transition: setter-bite
+    log: 'BTC went up: jq(.value) / jq(.var.lvalue)'
+
+  # Let's store the value back in the Direktiv variables and remove the variable we retrieved from the getter state from the payload
+  - id: setter-bite
+    type: setter
+    variables:
+      - key: lvalue # This variable is the variable name
+        scope: workflow # This variable is on a workflow level to ensure persistence across workflow instances 
+        value: jq(.value)
+    transform: 'jq(del(.var))' 
+    transition: logall
+
+    # Print the final JSON payload
+  - id: logall
+    type: noop
+    log: jq(.)
+
+  # Handle error conditions which might occur for the request to the URL
+  - id: http-error
+    type: noop
+    log: "The following error occurred: jq(.)"
+
+

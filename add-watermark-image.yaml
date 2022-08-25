@@ -13,8 +13,8 @@ description: Watermarks an image.
 functions:
   # The fuction call to add a watermark to the base64 image
 - id: apply-watermark
-  image: direktiv/image-watermark:latest
-  type: reusable
+  type: knative-workflow
+  image: direktiv/image-watermark
 
 states:
     # Validate the input or set some default

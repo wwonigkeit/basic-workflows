@@ -53,7 +53,8 @@ states:
     type: switch
     log: jq(.)
     conditions:
-      - condition: jq(if (.var.lvalue == null) then (.var.lvalue = 0) end)
+      - condition: jq(.var.lvalue == null)
+        transform: 'jq(.var.lvalue = 0)'
         transition: wentup
       - condition: jq(.var.lvalue == .value)
         transition: same
